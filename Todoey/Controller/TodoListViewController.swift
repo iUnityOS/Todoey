@@ -7,16 +7,25 @@
 //
 
 import UIKit
+import CoreData
 
 class TodoListViewController: UITableViewController {
 
-    var tasks : [Task] = [Task]()
+    var tasks : [Item] = [Item]()
     let dataPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("tasks.plist")
+    let context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
+    
+    var currentCategory : Category? {
+        
+        didSet {
+            
+            loadData()
+        }
+    }
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        
-        loadData()
+
     }
     
     //MARK - Data Source Methods
@@ -30,8 +39,8 @@ class TodoListViewController: UITableViewController {
         
         let cell = tableView.dequeueReusableCell(withIdentifier: "task cell", for: indexPath)
         
-        cell.textLabel?.text = tasks[indexPath.row].taskTitle ?? "No Title!"
-        cell.accessoryType = tasks[indexPath.row].taskStatus ? .checkmark : .none
+        cell.textLabel?.text = tasks[indexPath.row].title ?? "No Title!"
+        cell.accessoryType = tasks[indexPath.row].done ? .checkmark : .none
         
         return cell
     }
@@ -42,11 +51,11 @@ class TodoListViewController: UITableViewController {
         
         if tableView.cellForRow(at: indexPath)?.accessoryType == .checkmark {
             
-            tasks[indexPath.row].taskStatus = false
+            tasks[indexPath.row].done = false
             tableView.cellForRow(at: indexPath)?.accessoryType = .none
         } else {
             
-            tasks[indexPath.row].taskStatus = true
+            tasks[indexPath.row].done = true
             tableView.cellForRow(at: indexPath)?.accessoryType = .checkmark
         }
         
@@ -68,9 +77,12 @@ class TodoListViewController: UITableViewController {
         
         let alertAction = UIAlertAction(title: "Add", style: .default) { (action) in
             
-            let task = Task(title: tField.text!, isDone: false)
+            let item = Item(context: self.context)
+            item.title = tField.text
+            item.done = false
+            item.parentCategory = self.currentCategory
             
-            self.tasks.append(task)
+            self.tasks.append(item)
             
             self.tableView.reloadData()
             
@@ -87,33 +99,62 @@ class TodoListViewController: UITableViewController {
     
     func saveTasks() {
         
-        let encoder = PropertyListEncoder()
-        
         do {
             
-            let data = try encoder.encode(tasks)
-            try data.write(to: dataPath!)
+            try context.save()
             
         } catch {
             
         }
     }
     
-    func loadData() {
+    func loadData(with request : NSFetchRequest<Item> = Item.fetchRequest(), filter : NSPredicate? = nil) {
         
-        if let data = try? Data(contentsOf: dataPath!) {
-            
-            let decoder = PropertyListDecoder()
-            
-            do {
-                
-                tasks = try decoder.decode([Task].self, from: data)
-            } catch {
-                
-            }
+        let predicate = NSPredicate(format: "parentCategory.name MATCHES %@", currentCategory!.name!)
+        
+        if let secPred = filter {
+          
+            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [predicate, secPred])
         }
         
+        else {
+            
+            request.predicate = predicate
+        }
         
+        do {
+            
+            tasks = try context.fetch(request)
+            
+        } catch {
+            
+        }
+        
+        tableView.reloadData()
+    }
+}
+
+extension TodoListViewController : UISearchBarDelegate {
+    
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+        
+        print(searchBar.text!)
+        let request : NSFetchRequest<Item> = Item.fetchRequest()
+        
+        let filter = NSPredicate(format: "title CONTAINS[cd] %@", searchBar.text!)
+        request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
+        
+        loadData(with: request, filter: filter)
+    }
+    
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        
+        loadData()
+        
+        DispatchQueue.main.async {
+            
+            searchBar.resignFirstResponder()
+        }
     }
 }
 
